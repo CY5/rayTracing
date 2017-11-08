@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" type="text/css" href="css/style.css">
+  <link rel="stylesheet" type="text/css" href="css/checkbox.css">
+  <style>
+  html,body{
+
+    font-family: sans-serif;
+  }
+  canvas{
+    background: black;
+    width: 100%;
+    height: 100%;
+  }
+
+  span.desc {
+    float: right;
+    right: 98px;
+    position: absolute;
+  }
+  input[type="range"]{
+    width: 60%;
+  }
+  .controls > div{
+    border-top: 1px solid rgba(167, 167, 167, 0.37);
+    width: 80%;
+    margin: 10px auto;
+    border-radius: 7px;
+    padding: 12px;
+    position: relative;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+    display: flex;
+    flex: 1 0 100%;
+    justify-content: space-around;
+    flex-wrap: wrap;
+  }
+  .lbl{
+    font-weight: 700;
+    flex-basis: 171px;
+  }
+  .cnt_lbl{
+    position: absolute;
+    top: 60%;
+    left: 65%;
+  }
+  .flex{
+    display: flex;
+    flex: 1 0 25%;
+    flex-wrap: wrap;
+  }
+  .flex > div > input[type="button"], .flex > div > input[type="number"]{
+    width: 100%;
+  }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <span class="title">Ray Tracing</span>
+      <span class="desc">
+          <label>Sample: </label>
+          <label id="s_cnt"></label>
+      </span>
+    </div>
+    <div class="canvas" >
+      <canvas id="can" tabindex='1'></canvas>
+    </div>
+    <div class="controls">
+      <div>
+          <div class="flex" style="justify-content: space-around;">
+              <div class="flex-item-center">
+                  <label class="" for="ray_trace">RayTracing :</label>
+                  <input id="raytrace" type="checkbox" checked onchange="toggleControl('depth_recur', resetSample)">
+              </div>
+              <div class="flex-item-center">
+                  <label class="" for="auto_sample">Auto Sample Rate :</label>
+                  <input id="auto_sample" type="checkbox" onchange="toggleControl('sample_rate,camera_origin_x,camera_origin_y,camera_origin_z,reset_btn', resetSample)" >
+              </div>
+          </div>
+      </div>
+      <div>
+        <label class="lbl" for="sample_rate">Sample Rate :</label>
+        <input id="sample_rate" type="range" min="1" max="10" value="1" step="0.1"  oninput="sample_ch(this, 'sample_rt_id')" onchange="sample_ch(this, 'sample_rt_id')">
+        <div class="cnt_lbl"><label id="sample_rt_id"></label></div>
+      </div>
+      <div>
+        <label class="lbl" for="depth_recur">Depth Recursion :</label>
+        <input id="depth_recur" type="range" min="1" max="50" value="3" step="1"  oninput="sample_ch(this, 'depth_recur_id')" onchange="sample_ch(this, 'depth_recur_id')">
+        <div class="cnt_lbl"><label id="depth_recur_id"></label></div>
+      </div>
+      <div>
+        <label class="lbl" for="aperature">Aperature :</label>
+        <input id="aperature" type="range" min="1" max="20" value="2" step="0.1"  oninput="sample_ch(this, 'aperature_id')" onchange="sample_ch(this, 'aperature_id')">
+        <div class="cnt_lbl"><label id="aperature_id"></label></div>
+      </div>
+      <div>
+        <label class="lbl"> Camera Origin :</label>
+        <div class="flex">
+          <div>
+            <input id="camera_origin_x" type="number" value="15"  oninput="sample_ch(this, null)" onchange="sample_ch(this, null)">
+          </div>
+          <div>
+            <input id="camera_origin_y" type="number" value="2"  oninput="sample_ch(this, null)" onchange="sample_ch(this, null)">
+          </div>
+          <div>
+            <input id="camera_origin_z" type="number" value="3"  oninput="sample_ch(this, null)" onchange="sample_ch(this, null)">
+          </div>
+          <input type="button" id="reset_btn" value="Reset" onclick="resetCameraOrigin()"/>
+        </div>
+      </div>
+      <div>
+        <label class="lbl" for="focus_dist"> Fcous Distance :</label>
+        <input id="focus_dist" type="range" min="1" max="20" value="11" step="0.1"  oninput="sample_ch(this, 'focus_dist_id')" onchange="sample_ch(this, 'focus_dist_id')">
+        <div class="cnt_lbl"><label id="focus_dist_id"></label></div>
+      </div>
+      <!-- <div>
+           <span class="color-red">Note : Turning Ray Tracer ON/OFF will take time for transition </span>
+      </div> -->
+    </div>
+    <div class="footer">
+        <h1></h1>
+    </div>
+  </div>
+  <script type="text/javascript" src="js/helper.js"></script>
+
+  <script type="text/javascript">
+
+
+    var canvas = document.getElementById("can");
+    var ctx = canvas.getContext("2d");
+
+    var depth_recur = document.getElementById("depth_recur");
+    var sample_rate = document.getElementById("sample_rate");
+    var aperature = document.getElementById("aperature");
+    var camera_origin_x = document.getElementById("camera_origin_x");
+    var camera_origin_y = document.getElementById("camera_origin_y");
+    var camera_origin_z = document.getElementById("camera_origin_z");
+    var focus_dist = document.getElementById("focus_dist");
+    var s_cnt = document.getElementById("s_cnt");
+    var raytrace = document.getElementById("raytrace");
+    var auto_sample = document.getElementById("auto_sample");
+
+    function set_camera(){
+      return {
+        origin : [Number(camera_origin_x.value), Number(camera_origin_y.value), Number(camera_origin_z.value)],
+        aperature : Number(aperature.value),
+        focus_dist : Number(focus_dist.value),
+      }
+    }
+    function action() {
+      return {
+        trace : raytrace.checked,
+        auto_sample : auto_sample.checked,
+      }
+    }
+    // canvas.width = window.innerWidth;
+    // canvas.height = window.innerHeight;
+    var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    var sample = 0;
+    s_cnt.textContent = 0;
+    let rz = false;
+    window.onresize = function () {
+      //
+      // canvas.width = window.innerWidth;
+      // canvas.height = window.innerHeight;
+      ctx = canvas.getContext("2d");
+      imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      rz = true;
+      sample = 1;
+      s_cnt.textContent = 0;
+    }
+
+    function sample_ch(obj, str){
+      var obj_val = Number(obj.value);
+      document.getElementById(str).textContent=Math.floor(obj_val);
+      set_camera();
+    }
+
+    function toggleControl(str, cb) {
+      let arr = str.split(",");
+      arr.forEach((ele) => {
+        document.getElementById(ele).disabled = !document.getElementById(ele).disabled;
+        if (document.getElementById(ele).disabled){
+          document.getElementById(ele).style.opacity = 0.3;
+          document.getElementById(ele).style.cursor = "not-allowed";
+        } else{
+          document.getElementById(ele).style.opacity = 1.0;
+          document.getElementById(ele).style.cursor = "pointer";
+        }
+      });
+      if (cb !== null){
+          resetSample();
+      }
+
+    }
+
+    function resetSample() {
+      sample = 1;
+    }
+
+
+    function resetCameraOrigin() {
+        camera_origin_x.value = 15;
+        camera_origin_y.value = 2;
+        camera_origin_z.value = 3;
+        set_camera();
+    }
+
+    function render () {
+          var h = canvas.height;
+          var w = canvas.width;
+          var worker = new Worker('js/workerTest.js');
+          worker.postMessage({
+            "imageData": imageData,
+            "height": h,
+            "width": w,
+            "sample":sample,
+            "sample_rate":sample_rate.value,
+            "resize" : rz,
+            "depth_recur" : depth_recur.value,
+            "camera_setting" : set_camera(),
+            "action" : action()
+          });
+          worker.addEventListener('message', function(e) {
+            drawStuff(e.data.imageData);
+          }, false);
+
+          function drawStuff(imgDt) {
+            ctx.putImageData(imgDt, 0, 0);
+            // if(sample>=100){
+            //   return;
+            // }
+
+            worker.postMessage({
+              "imageData": imageData,
+              "height": canvas.height,
+              "width": canvas.width,
+              "sample":sample,
+              "sample_rate":sample_rate.value,
+              "resize" : rz,
+              "depth_recur" : depth_recur.value,
+              "camera_setting" : set_camera(),
+              "action" : action()
+            });
+            rz = false;
+            if (auto_sample.checked){
+              sample += 3;
+            }else {
+              sample++;
+            }
+            console.log("Sample cnt: "+sample);
+            s_cnt.textContent = Math.floor(sample);
+          }
+    }
+    render();
+
+    function statsLo(){var script=document.createElement('script');script.onload=function(){var stats=new Stats();document.body.appendChild(stats.dom);requestAnimationFrame(function loop(){stats.update();requestAnimationFrame(loop)});};script.src='//rawgit.com/mrdoob/stats.js/master/build/stats.min.js';document.head.appendChild(script);}
+
+    statsLo();
+  </script>
+
+</body>
+
+</html>
