@@ -1,5 +1,4 @@
-# rayTracing
-Ray Tracing
+# RayTracing
 
 check out 
 - [Demo](http://raytracing.surge.sh/)
