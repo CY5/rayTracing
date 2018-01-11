@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Ray Tracer in GPU</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+        <link type="text/css" href="css/style.css" rel="stylesheet">
+    </head>
+    <body>
+        <div class="controls">
+            <div>
+                <div class="flex flex-column" style="justify-content: space-around;">
+                    <div class="flex-item-center">
+                        <label class="" for="ray_trace">RayTracing :</label>
+                        <input id="raytrace" type="checkbox"  onchange="togglerayTrace()">
+                    </div>
+                    <div class="flex-item-center">
+                        <label class="" for="anim">Animate :</label>
+                        <input id="anim" type="checkbox" onchange="toggleAnim();" >
+                    </div>
+                    <div class="flex-item-center">
+                        <label class="" for="motionBlur">Motion Blur :</label>
+                        <input id="motionBlur" type="checkbox"  onchange="toggleMotionBlur()">
+                    </div>
+                    <div class="flex-item-center">
+                        <label class="" for="transparent">Refraction:</label>
+                        <select id="transparent" onchange="selectTransparency(this)">
+                            <option value="1.000293">Air(1.000293)</option>
+                            <option value="1.025">Liquid helium(1.025)</option>
+                            <option value="1.330">Water(1.330)</option>
+                            <option value="1.31">Water ice(1.31)</option>    
+                            <option value="1.406">Lens(1.406)</option>  
+                            <option value="2.417">Diamond(2.417)</option> 
+                        </select>
+                    </div>
+                    <div class="flex-item-center">
+                        <label class="" for="toggleSampling">Sampling :</label>
+                        <input id="toggleSampling" type="checkbox"  onchange="toggleSampling()">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="info">
+            <div>
+                <label>Sample: </label>
+                <label id="sample"></label>
+            </div>
+        </div>
+        <script type="text/javascript" src="js/helper.js"></script>
+        <script type="text/javascript" src="js/vec3.js"></script>
+        <script type="text/javascript" src="js/threejs_assets/three.js"></script>
+        <script type="text/javascript" src="js/threejs_assets/stats.min.js"></script>
+        <script type="text/javascript" src="js/threejs_assets/TrackballControls.js"></script>
+        <script type="text/javascript" src="js/threejs_assets/OrbitControls.js"></script>
+        <script type="text/javascript" src="js/main.js"></script>
+        <script id="screenTextureVertexShader" type="notjs">
+            varying vec2 vUv;
+
+            void main()
+		    {
+			    vUv = uv;
+			    gl_Position = vec4( position, 1.0 );
+		    }
+        </script>
+        <script id="screenTextureFragmentShader" type="notjs">
+            precision mediump float;
+            varying vec2 vUv;
+            uniform sampler2D tTexture01;
+
+            void main()
+		    {
+			    gl_FragColor = texture2D(tTexture01, vUv);
+		    }
+        </script>
+
+
+
+        
+        <script id="screenOutputVertexShader" type="notjs">
+            varying vec2 vUv;
+
+            void main()
+		    {
+			    vUv = uv;
+			    gl_Position = vec4( position, 1.0 );
+		    }
+        </script>
+        <script id="screenOutputFragmentShader" type="notjs">
+            precision mediump float;            
+            varying vec2 vUv;
+            uniform sampler2D tTexture02;
+            uniform float Sample;
+            uniform bool sampling;
+ 
+
+            void main()
+		    {
+                if (sampling == false){
+                    gl_FragColor = texture2D(tTexture02, vUv);
+                }else {
+                    vec4 texelColor = texture2D(tTexture02, vUv) / Sample ;
+                    vec4 pixelColor = vec4(sqrt(texelColor.xyz),1.0);
+                    
+                    gl_FragColor = pixelColor;
+                }
+                
+		    }
+        </script>
+
+
+
+        <script id="vertexShader" type="notjs">
+            attribute vec3 e_position;
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = vec4(position, 1.0);
+                //lookfrom = vec3( projectionMatrix * modelViewMatrix  * vec4(e_position + position , 1.0));
+
+            }
+        </script>
+        <script id="fragmentShader" type="notjs">
+            /*
+            tTexture_env - 1
+            tTexture_2   - 2
+            tTexture_3   - 3 
+            */
+            precision mediump float;
+            #define M_PI 3.1415926535897932384626433832795
+            #define MAX_FLOAT   99999.99
+            #define SAMPLE 1
+            #define MAX_DEPTH 50
+            #define RING 1
+            #define INSTANCE_COUNT  6
+            #define SPHERE_CNT 6 
+            #define LAMBERT    0
+            #define METAL      1
+            #define DIELECTRIC 2         
+
+
+            uniform vec2 u_resolution;
+            uniform sampler2D texture0;
+            uniform sampler2D tTexture_env;
+            uniform float Sample;
+            uniform int mouseMove;
+            uniform int stopPrev;
+            uniform float time_val;
+            uniform float randd;
+            uniform vec3 magPos;
+            uniform bool rayTrace;
+            uniform float ref_idx;
+            uniform bool sampling;
+
+            varying vec2 vUv;
+
+
+            float seed;
+
+
+            vec2 randState;
+
+            struct Sphere {
+                vec3 center;
+                float radius;
+
+                int materialType;
+                int textureType;
+                vec3 albedo;
+                float fuzz;
+                float refractionIndex;
+
+            };
+            Sphere sceneList[SPHERE_CNT];
+
+            struct Camera {
+                vec3 origin;
+                vec3 lower_left_corner;
+                vec3 horizontal;
+                vec3 vertical;
+                vec3 u, v, w;
+                float lens_radius;
+            };
+
+            struct ray {
+                vec3 origin;
+                vec3 direction;
+            };
+
+            struct hit_rec{
+                float t;
+                vec3 p;
+                vec3 normal;
+                int material;
+                vec3 albedo;
+                float fuzz;
+                float refractionIndex;
+            };
+            float rand( )
+            {
+                randState.x = fract(sin(dot(randState.xy, vec2(12.9898, 78.233))) * 43758.5453);
+                randState.y = fract(sin(dot(randState.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        
+                return randState.x;
+            }
+
+            float rand(inout float seed){
+                seed -= randState.x*randState.y;
+                return fract( sin( seed ) * 43758.5453123 );
+            }
+
+            float hash( vec2 p ) 
+            {
+                return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+            }
+            float hash(float h) {
+                return fract(sin(h) * 43758.5453123);
+            }
+            bool Refract(vec3 v, vec3 n, float ni_over_nt, out vec3 refracted)
+            {
+                vec3 uv = normalize(v);
+
+                float dt = dot(uv, n);
+
+                float discriminant = 1.0 - ni_over_nt * ni_over_nt * (1.0 - dt * dt);
+
+                if (discriminant > 0.0)
+                {
+                    refracted = ni_over_nt*(uv - n * dt) - n * sqrt(discriminant);
+
+                    return true;
+                }
+                else
+                    return false;
+            }
+
+
+            vec3 Reflect(vec3 v, vec3 n)
+            {
+                return v - 2.0 * dot(v, n) * n;
+            }
+            vec3 random_in_unit_disk()
+            {
+                float spx = 2.0 * rand() - 1.0;
+                float spy = 2.0 * rand() - 1.0;
+            
+                float r, phi;
+            
+            
+                if(spx > -spy)
+                {
+                    if(spx > spy)
+                    {
+                        r = spx;
+                        phi = spy / spx;
+                    }
+                    else
+                    {
+                        r = spy;
+                        phi = 2.0 - spx / spy;
+                    }
+                }
+                else
+                {
+                    if(spx < spy)
+                    {
+                        r = -spx;
+                        phi = 4.0 + spy / spx;
+                    }
+                    else
+                    {
+                        r = -spy;
+            
+                        if(spy != 0.0)
+                            phi = 6.0 - spx / spy;
+                        else
+                            phi = 0.0;
+                    }
+                }
+            
+                phi *= M_PI / 4.0;
+            
+            
+                return vec3(r * cos(phi), r * sin(phi), 0.0);
+            }
+            vec3 random_in_unit_sphere()
+            {
+                float phi = 2.0 * M_PI * rand();
+                float cosTheta = 2.0 * rand() - 1.0;
+                float u = rand();
+            
+                float theta = acos(cosTheta);
+                float r = pow(u, 1.0 / 3.0);
+            
+                float x = r * sin(theta) * cos(phi);
+                float y = r * sin(theta) * sin(phi);
+                float z = r * cos(theta);
+            
+                return vec3(x, y, z);
+            }
+
+            vec3 point_at_parameter (in ray r, float t){
+                return r.origin + t * r.direction;
+            }
+
+            Camera setup_camera(
+                vec3 lookfrom,vec3 lookat,
+                vec3 vup,float vfov,float aspect,
+                float aperature,float focus_dist) 
+            {
+                float lens_radius = aperature / 2.0;
+                float theta = vfov * M_PI / 180.0;
+                float half_height = tan(theta/2.0);
+                float half_width = aspect * half_height;
+                vec3 origin = lookfrom;
+                vec3 w = normalize(lookfrom - lookat);
+                vec3 u = normalize(cross(vup, w));
+                vec3 v = cross(w, u);
+                vec3 lower_left_corner = origin - half_width*focus_dist*u - half_height*focus_dist*v - focus_dist*w;
+                vec3 horizontal = 2.0 * half_width * focus_dist * u;
+                vec3 vertical = 2.0 * half_height * focus_dist * v;
+                return  Camera(    
+                    origin,
+                    lower_left_corner,
+                    horizontal,
+                    vertical,
+                    u, v, w,
+                    lens_radius
+                );
+            }
+
+            ray get_ray(in Camera camera, float s, float t) {
+                vec3 rd = camera.lens_radius * random_in_unit_disk();
+                vec3 offset = camera.u * rd.x + camera.v * rd.y;
+                ray r;
+                r.origin = camera.origin + offset;
+                r.direction = camera.lower_left_corner + s * camera.horizontal + t * camera.vertical - camera.origin - offset;
+                return r;
+            }
+            float noise(vec3 x) {
+                vec3 p = floor(x);
+                vec3 f = fract(x);
+                f = f * f * (3.0 - 2.0 * f);
+            
+                float n = p.x + p.y * 157.0 + 113.0 * p.z;
+                return mix(
+                        mix(mix(hash(n + 0.0), hash(n + 1.0), f.x),
+                                mix(hash(n + 157.0), hash(n + 158.0), f.x), f.y),
+                        mix(mix(hash(n + 113.0), hash(n + 114.0), f.x),
+                                mix(hash(n + 270.0), hash(n + 271.0), f.x), f.y), f.z);
+            }
+            bool sphere_hit(
+                Sphere s, ray r, float t_min,
+                float t_max,  out hit_rec rec) 
+            {
+                vec3 oc = r.origin - s.center;
+                float a = dot(r.direction, r.direction)==0.0?0.1:dot(r.direction, r.direction);
+                float b = dot(oc, r.direction);
+                float c = dot(oc, oc) - s.radius*s.radius;
+                float discriminant = b*b - a*c;
+                if (discriminant > 0.0){
+                    float temp = (-b - sqrt(discriminant))/a;
+                    if (temp < t_max && temp > t_min) {
+                        rec.t = temp;
+                        rec.p = point_at_parameter(r, rec.t);
+                        rec.normal = (rec.p - s.center) / s.radius;
+                        rec.material = s.materialType;
+                        if (s.textureType == 1){
+                            rec.albedo =  s.albedo * 2.0*noise(rec.normal);//vec3(texture2D(tTexture_env, rec.normal.yz+vUv));
+                        }else{
+                            rec.albedo =  s.albedo;
+                        }
+                        
+                        rec.fuzz   = s.fuzz;
+                        rec.refractionIndex  = s.refractionIndex;
+                        return true;
+                    }
+                    temp = (-b + sqrt(discriminant)) / a;
+                    if (temp < t_max && temp > t_min) {
+                        rec.t = temp;
+                        rec.p = point_at_parameter(r, rec.t);
+                        rec.normal = (rec.p - s.center) / s.radius;
+                        rec.material = s.materialType;
+                        if (s.textureType == 1){
+                            rec.albedo =  s.albedo * 2.0*noise(rec.normal);//vec3(texture2D(tTexture_env, rec.normal.yz+vUv));
+                        }else{
+                            rec.albedo =  s.albedo;
+                        }
+                        
+                        rec.fuzz   = s.fuzz;
+                        rec.refractionIndex  = s.refractionIndex;
+                        return true;
+                    }
+                }
+                return false;
+            }
+            float schlick(float cosine, float ref_idx) {
+                float r0 = (1.0-ref_idx) / (1.0+ref_idx);
+                r0 = r0*r0;
+                return r0 + (1.0-r0)*pow((1.0 - cosine),5.0);
+            }
+            bool lambert_scatter(ray r_in, hit_rec rec, out vec3 attenuation, out ray scattered) {
+                vec3 target = rec.p + rec.normal + random_in_unit_sphere();
+                scattered.origin = rec.p;
+                scattered.direction = target-rec.p;
+                attenuation = rec.albedo;
+                return true;
+            }
+            bool metal_scatter(ray r_in, hit_rec rec, out vec3 attenuation, out ray scattered){
+                vec3 reflected = reflect(normalize(r_in.direction), rec.normal);
+                scattered.origin = rec.p;
+                scattered.direction = reflected + rec.fuzz * random_in_unit_sphere();
+                attenuation = rec.albedo;
+                return (dot(scattered.direction, rec.normal)>0.0);
+            }
+            bool dielectric_scatter(ray r_in, hit_rec rec, out vec3 attenuation, out ray scattered){
+                vec3 outward_normal;
+                vec3 reflected = Reflect(r_in.direction, rec.normal);
+                float ni_over_nt;
+                attenuation = vec3(1.0, 1.0, 1.0); 
+                vec3 refracted;
+                float reflect_prob;
+                float cosine;
+
+                float ref_idx = rec.refractionIndex;
+
+                if (dot(r_in.direction, rec.normal) > 0.0) {
+                    outward_normal = -rec.normal;
+                    ni_over_nt = ref_idx;
+                    cosine = dot(r_in.direction, rec.normal) / length(r_in.direction);
+                    cosine = sqrt(1.0 - ref_idx*ref_idx*(1.0-cosine*cosine));
+               }
+               else {
+                    outward_normal = rec.normal;
+                    ni_over_nt = 1.0 / ref_idx;
+                    cosine = -dot(r_in.direction, rec.normal) / length(r_in.direction);
+               }
+               if (Refract(r_in.direction, outward_normal, ni_over_nt, refracted)) {
+                   reflect_prob = schlick(cosine, ref_idx);
+               }else {
+                    reflect_prob = 1.0;
+               }
+               if (rand() < reflect_prob){ 
+                    scattered = ray(rec.p, reflected);
+               } else{ 
+                    scattered = ray(rec.p, refracted);
+               }
+                return true;
+            }
+            bool interesectRays (ray r, float t_min, float t_max, out hit_rec rec) {
+                hit_rec temp;
+                bool hit_anything = false;
+                float closest_so_far = t_max;
+                for (int i=0; i < SPHERE_CNT; i++){
+                    Sphere s = sceneList[i];
+                    
+                    if (sphere_hit(s, r, t_min, closest_so_far,temp)) {
+                        hit_anything = true;
+                        closest_so_far = temp.t;
+                        rec = temp;
+                    }
+                }
+                return hit_anything;
+            }
+            bool material_scatter(ray r, hit_rec rec, out vec3 attenuation, out ray scattered){
+                int material_type = rec.material;
+                if (material_type == LAMBERT){
+                    return lambert_scatter(r, rec, attenuation, scattered);
+                }else if(material_type == METAL) {
+                    return metal_scatter(r, rec, attenuation, scattered);
+                }else if(material_type == DIELECTRIC) {
+                    return dielectric_scatter(r, rec, attenuation, scattered);
+                }
+                return false;
+            }
+            vec3 skyColor (in ray r){
+                vec3 unit_direction = normalize(r.direction);
+                float t = 0.5 * (unit_direction.y+ 1.0);
+               // return  (1.0 - t)*vec3(1.0, 1.0, 1.0) + t*vec3(0.5, 0.7, 1.0);
+               return  (1.0 - t)*vec3(1.0, 0.8431, 0.5921) + t*vec3(0.0, 0.0, 0.0);
+            }
+            vec3 color(inout ray r){
+                hit_rec rec;
+                vec3 c = vec3(1.0,1.0,1.0);
+                for (int i=0; i<MAX_DEPTH; i++){
+                    
+                    if (interesectRays(r, 0.001, MAX_FLOAT,rec)){
+                        ray scattered;
+                        vec3 attenuation;
+                        bool isScattered = material_scatter(r, rec, attenuation, scattered);
+                        r.origin = scattered.origin;
+                        r.direction = scattered.direction;
+                        if(isScattered){
+                            c = c * attenuation;
+                        } else {
+                            c *= vec3(0.0);
+                            return c;
+                        }
+                    } else {
+                        c *=  skyColor (r);
+                        return c;
+                    }
+                    
+                }
+                return c;
+            }
+            
+            /*void generateScene(float x, float y, float z, float r){
+                float r = M_PI*5.5 ;
+                
+                sceneList[0] = Sphere(vec3( 0.000000, -1000.000000, 0.000000), 1000.000000, 1, vec3( 0.500000, 0.500000, 0.500000),0.0, 0.5);
+
+                for (int k = 1 ; k < RING * INSTANCE_COUNT; k++){
+                        float deg = float(k);
+                        float x =   2.0*r  * float(k) * float(RING) * cos(deg) ;
+                        float y = r;
+                        float z =  2.0* r * float(k) * float(RING) * sin(deg)  ;
+                        sceneList[k] = Sphere(vec3(x, y, z), r, 1, normalize(vec3(x,y,z)), 0.1, 2.0);
+                }
+            }*/
+
+            void generateScene(float r){
+                float d = r *2.0;
+                //sceneList[0] = Sphere(vec3( 0.000000, -1000.000000, 0.000000), 1000.000000, 1,0, vec3( 1.000000, 1.000000, 1.000000),0.1, 0.0);
+                sceneList[0] = Sphere(vec3( 0.000000, -1000.000000, 0.000000), 1000.000000, 1,0, vec3( 0.5, 0.5, 0.5),0.0, 0.0);
+                sceneList[1] = Sphere(vec3(0.0, r-2.0, 0.0), r-2.0, 1,0, vec3(0,0.588,0.533), 0.0, 2.0);
+                sceneList[2] = Sphere(vec3(-60, r-5.6, 40), r-3.0, 1,1, normalize(vec3(0.2235, 0.1686, 0.3764)), 0.1, 1.01);
+
+                sceneList[3] = Sphere(vec3(-40, r+0.6, -30.0), r+2.0, 1,1, normalize(vec3(0.945, 0.556, 0.486)), 0.1, 2.0);
+                sceneList[4] = Sphere(vec3(40, r + 9.5, 40.0), r + 11.0, 2,0, normalize(vec3(0.9568, 0.6823, 0.7529)), 0.00, ref_idx);
+                sceneList[5] = Sphere(vec3(-20, r/3.1, -15), r/3.0 , 1,0, normalize(vec3(1.0,0.7529,0.0274)), 0.0, 0.0);
+            }
+            void emulateRasterizationScene(float r){
+                float d = r *2.0;
+                //sceneList[0] = Sphere(vec3( 0.000000, -1000.000000, 0.000000), 1000.000000, 1,0, vec3( 1.000000, 1.000000, 1.000000),0.1, 0.0);
+                sceneList[0] = Sphere(vec3( 0.000000, -1000.000000, 0.000000), 1000.000000, 0,0, vec3( 0.5, 0.5, 0.5),0.0, 0.0);
+                sceneList[1] = Sphere(vec3(0.0, r-2.0, 0.0), r-2.0, 0,0, vec3(0,0.588,0.533), 0.0, 2.0);
+                sceneList[2] = Sphere(vec3(-60, r-5.6, 40), r-3.0, 0,1, normalize(vec3(0.2235, 0.1686, 0.3764)), 0.1, 1.01);
+
+                sceneList[3] = Sphere(vec3(-40, r+0.6, -30.0), r+2.0, 0,1, normalize(vec3(0.945, 0.556, 0.486)), 0.1, 2.0);
+                sceneList[4] = Sphere(vec3(40, r + 9.5, 40.0), r + 11.0, 0,0, normalize(vec3(0.9568, 0.6823, 0.7529)), 0.00, 1.2);
+                sceneList[5] = Sphere(vec3(-20, r/3.1, -15), r/3.0 , 0,0, normalize(vec3(1.0,0.7529,0.0274)), 0.0, 0.0);
+            }
+            void main() {
+                randState = (gl_FragCoord.xy / u_resolution.xy) * randd;
+                float x = gl_FragCoord.x;
+                float y = gl_FragCoord.y;
+                vec3 col = vec3(0.0,0.0,0.0);
+                vec3 lookat = vec3(0.0,0.0,0.0);
+                vec3 lookfrom =  cameraPosition;
+                vec3 up = vec3(0.0,1.0,0.0);
+                float dist_to_focus = 50.0;
+                float radius = M_PI * 5.5;
+                    
+                float aperature = 0.1;
+                float aspect = u_resolution.x / u_resolution.y;
+                float vfov = 20.0;
+
+                Camera c =  setup_camera(
+                    lookfrom, lookat,up,
+                                vfov, aspect,
+                                aperature,dist_to_focus
+                            );
+
+                
+
+                vec4 previousColor = texture2D(texture0, vUv);
+                
+                
+                float u = float(x + rand()) / float(u_resolution.x);
+                float v = float(y + rand()) / float(u_resolution.y);    
+
+                
+                ray r = get_ray(c, u, v);
+
+                if (rayTrace == true){
+                    generateScene(radius);
+                }else {
+                    emulateRasterizationScene(radius);
+                }
+                
+                
+                col =  color(r);
+                if (mouseMove==1){
+                    
+                    previousColor = vec4(0.5,0.5,0.5,1.0);
+                } 
+                if (sampling == false) {
+                    previousColor = vec4(0.0,0.0,0.0,0.0);
+                }
+
+                gl_FragColor =  vec4(col,1.0) + previousColor;
+
+            }
+        </script>
+        
+        <script type="text/javascript">
+            main();
+        </script>
+    </body>
+</html>
