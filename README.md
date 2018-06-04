@@ -9,7 +9,10 @@ check out Ray Tracing in 2D Canvas
 
 GPU Ray TRACING
 
-![alt text](https://raw.githubusercontent.com/CY5/rayTracing/master/images/gpu/rayTraced_01.png)
+![Only Circle](https://raw.githubusercontent.com/CY5/rayTracing/master/images/gpu/rayTraced_01.png)
+
+
+![Different Shape](https://raw.githubusercontent.com/CY5/rayTracing/master/images/gpu/ice_ray_02.png)
 
 Canvas Ray Tracing 
 
