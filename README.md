@@ -9,10 +9,12 @@ check out Ray Tracing in 2D Canvas
 
 GPU Ray TRACING
 
-![Only Circle](https://raw.githubusercontent.com/CY5/rayTracing/master/images/gpu/rayTraced_01.png)
+Different Shape (Sphere, Triangle, Disk)
+![Different Shape (Sphere, Triangle, Disk)](https://raw.githubusercontent.com/CY5/rayTracing/master/images/gpu/ice_ray_02.png)
 
+Sphere Shape
+![Sphere](https://raw.githubusercontent.com/CY5/rayTracing/master/images/gpu/rayTraced_01.png)
 
-![Different Shape](https://raw.githubusercontent.com/CY5/rayTracing/master/images/gpu/ice_ray_02.png)
 
 Canvas Ray Tracing 
 
