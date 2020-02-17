@@ -9,7 +9,8 @@ check out Ray Tracing in 2D Canvas
 
 GPU Ray TRACING
 Point Light on Lambert Sphere
-(https://github.com/CY5/rayTracing/blob/master/images/gpu/montecarlo_simulation.png)
+(https://raw.githubusercontent.com/CY5/rayTracing/master/images/gpu/montecarlo_simulation.png)
+
 Point Light on Different Shape (Sphere, Triangle, Disk)
 ![Point Light on Different Shape (Sphere, Triangle, Disk)](https://raw.githubusercontent.com/CY5/rayTracing/master/images/gpu/rayTraced_03.png)
 
